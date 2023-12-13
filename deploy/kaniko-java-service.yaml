@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: kaniko-java-service
+  namespace: xuxiaowei-com-cn
+spec:
+  ports:
+    - nodePort: 31254
+      port: 8080
+      protocol: TCP
+      targetPort: 8080
+  selector:
+    app: kaniko-java
+  type: LoadBalancer

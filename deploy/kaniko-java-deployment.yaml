@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kaniko-java-deployment
+  namespace: xuxiaowei-com-cn
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kaniko-java
+  template:
+    metadata:
+      labels:
+        app: kaniko-java
+    spec:
+      containers:
+        - name: kaniko-java
+          image: registry.cn-qingdao.aliyuncs.com/xuxiaoweicomcn/kaniko-java:0.0.1-SNAPSHOT
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+          volumeMounts:
+            - mountPath: /etc/localtime
+              name: time-zone
+            - mountPath: /logs
+              name: kaniko-java-logs-volume
+      volumes:
+        - hostPath:
+            path: /etc/localtime
+            type: ""
+          name: time-zone
+        - name: kaniko-java-logs-volume
+          nfs:
+            path: /nfs/kaniko-java/logs
+            server: 172.25.25.5

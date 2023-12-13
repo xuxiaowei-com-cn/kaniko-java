@@ -1,0 +1,93 @@
+stages:
+  - build
+  - publish
+  - waiting-rollout
+  - test
+
+variables:
+  GROUP_ID: cn.com.xuxiaowei
+  ARTIFACT_ID: kaniko-java
+  VERSION: 0.0.1-SNAPSHOT
+  NAMESPACE: xuxiaoweicomcn
+
+build:
+  stage: build
+  image:
+    name: gcr.io/kaniko-project/executor:v1.9.2-debug
+    entrypoint: [ "" ]
+  variables:
+    MAVEN_OPTS: >-
+      -Dhttps.protocols=TLSv1.2
+      -Dmaven.repo.local=$CI_PROJECT_DIR/.m2/repository
+      -Dorg.slf4j.simpleLogger.showDateTime=true
+      -Djava.awt.headless=true
+    MAVEN_CLI_OPTS: >-
+      --batch-mode
+      --errors
+      --fail-at-end
+      --show-version
+      --no-transfer-progress
+      -DinstallAtEnd=true
+      -DdeployAtEnd=true
+  before_script:
+    - echo "{\"auths\":{\"${DOCKER_REGISTRY}\":{\"auth\":\"$(printf "%s:%s" "${DOCKER_REGISTRY_USER}" "${DOCKER_REGISTRY_PASSWORD}" | base64 | tr -d '\n')\"}}}" > /kaniko/.docker/config.json
+  script:
+    - /kaniko/executor version
+    - /kaniko/executor --help
+    - >-
+      /kaniko/executor
+      --context "${CI_PROJECT_DIR}"
+      --dockerfile "${CI_PROJECT_DIR}/Dockerfile"
+      --cache=true
+      --cache-dir "${CI_PROJECT_DIR}/.m2/repository"
+      --build-arg CI_PROJECT_DIR=${CI_PROJECT_DIR}
+      --build-arg MAVEN_OPTS="${MAVEN_OPTS}"
+      --build-arg MAVEN_CLI_OPTS="${MAVEN_CLI_OPTS}"
+      --build-arg CI_PIPELINE_ID=${CI_PIPELINE_ID}
+      --build-arg CI_JOB_ID=${CI_JOB_ID}
+      --build-arg GROUP_ID=${GROUP_ID}
+      --build-arg ARTIFACT_ID=${ARTIFACT_ID}
+      --build-arg VERSION=${VERSION}
+      --destination "${DOCKER_REGISTRY}/${NAMESPACE}/${ARTIFACT_ID}:${VERSION}-${CI_PIPELINE_ID}"
+      --destination "${DOCKER_REGISTRY}/${NAMESPACE}/${ARTIFACT_ID}:${VERSION}"
+  cache:
+    paths:
+      - .m2/repository
+
+publish:
+  stage: publish
+  needs:
+    - job: build
+  image: bitnami/kubectl:1.27.4
+  variables:
+    KUBECONFIG: $RUNNER_TEMP_PROJECT_DIR/KUBECONFIG
+  script:
+    - kubectl get ns xuxiaowei-com-cn && echo "已存在 xuxiaowei-com-cn 命令空间" || kubectl create ns xuxiaowei-com-cn
+    - kubectl -n xuxiaowei-com-cn get deployment kaniko-java-deployment && echo "已存在 kaniko-java-deployment 部署" || kubectl apply -f deploy/kaniko-java-deployment.yaml
+    - kubectl -n xuxiaowei-com-cn get service kaniko-java-service && echo "已存在 kaniko-java-service 部署" || kubectl apply -f deploy/kaniko-java-service.yaml
+    - kubectl -n xuxiaowei-com-cn set image deployment/kaniko-java-deployment kaniko-java=${DOCKER_REGISTRY}/${NAMESPACE}/${ARTIFACT_ID}:${VERSION}-${CI_PIPELINE_ID}
+  tags:
+    - k8s-control-plane
+
+waiting-rollout:
+  stage: waiting-rollout
+  needs:
+    - job: publish
+  image: bitnami/kubectl:1.27.4
+  variables:
+    KUBECONFIG: $RUNNER_TEMP_PROJECT_DIR/KUBECONFIG
+  script:
+    - kubectl -n xuxiaowei-com-cn rollout status deployment/kaniko-java-deployment
+  timeout: 240s
+  tags:
+    - k8s-control-plane
+
+test:
+  stage: test
+  needs:
+    - job: waiting-rollout
+  image: curlimages/curl:8.5.0
+  script:
+    - curl http://kaniko-java-service.xuxiaowei-com-cn.svc:8080
+  tags:
+    - k8s-control-plane
