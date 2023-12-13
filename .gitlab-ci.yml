@@ -3,6 +3,7 @@ stages:
   - publish
   - waiting-rollout
   - test
+  - sync
 
 variables:
   GROUP_ID: cn.com.xuxiaowei
@@ -91,3 +92,7 @@ test:
     - curl http://kaniko-java-service.xuxiaowei-com-cn.svc:8080
   tags:
     - k8s-control-plane
+
+
+include:
+  - /sync.yml
